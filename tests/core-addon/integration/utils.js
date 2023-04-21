@@ -250,12 +250,8 @@ async function installRally(driver) {
   await findAndAct(driver, By.css(`[label="Okay"]`), e => e.click());
 
   // We expect the extension to load its options page in a new tab.
-  await driver.wait(async () => {
-    return (await driver.getAllWindowHandles()).length === 2;
-  }, WAIT_FOR_PROPERTY);
+  const newTab = (await driver.getAllWindowHandles())[0];
 
-  // Selenium is still focused on the old tab, so switch to the new window handle.
-  const newTab = (await driver.getAllWindowHandles())[1];
   await driver.switchTo().window(newTab);
 
   // Switch back to web content context.
@@ -274,7 +270,7 @@ async function installRally(driver) {
  */
 async function initRemoteSettings(testStudy, timestamp) {
   const { RemoteSettings } = ChromeUtils.import("resource://services-settings/remote-settings.js");
-  const remoteSettingsKey = "rally-studies-v1";
+  const remoteSettingsKey = "rally-studies-v2";
 
   const db = await RemoteSettings(remoteSettingsKey).db;
   await db.create(testStudy);
@@ -288,7 +284,7 @@ async function initRemoteSettings(testStudy, timestamp) {
  */
 async function updateRemoteSettings(modifiedTestStudy, timestamp) {
   const { RemoteSettings } = ChromeUtils.import("resource://services-settings/remote-settings.js");
-  const remoteSettingsKey = "rally-studies-v1";
+  const remoteSettingsKey = "rally-studies-v2";
 
   await RemoteSettings(remoteSettingsKey).emit("sync", { data: { current: [modifiedTestStudy] } });
 }

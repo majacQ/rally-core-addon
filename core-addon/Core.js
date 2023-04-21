@@ -34,8 +34,12 @@ export default class Core {
 
     // Initialize the collection engine once we know if
     // user is enrolled or not.
-    this._storage.getRallyID().finally(id =>
-      this._dataCollection.initialize(id !== undefined));
+    this._storage.getRallyID().then(id => {
+      this._dataCollection.initialize(id !== undefined)
+    }).catch(err => {
+      console.error("No Rally ID, initializing data collection in unenrolled state", err);
+      this._dataCollection.initialize(false);
+    });
 
     // Asynchronously get the available studies. We don't need to wait
     // for this to finish, the UI can handle the wait.
@@ -458,12 +462,16 @@ export default class Core {
     await this._storage.appendActivatedStudy(studyAddonId);
 
     enrollmentMetrics.studyId.set(studyAddonId);
+    enrollmentMetrics.schemaNamespace.set(knownStudy.schemaNamespace);
     rallyPings.studyEnrollment.submit();
 
-    // Finally send the ping. Important: remove this line once the migration
+    // Finally send the ping. Important: remove this block once the migration
     // to Glean.js is finally complete.
-    let rallyId = await this._storage.getRallyID();
-    await this._dataCollection.sendEnrollmentPing(rallyId, knownStudy.schemaNamespace);
+    if ("useLegacyTelemetry" in knownStudy && knownStudy.useLegacyTelemetry === true) {
+      console.warn("Sending study enrollment ping using legacy telemetry");
+      let rallyId = await this._storage.getRallyID();
+      await this._dataCollection.sendEnrollmentPing(rallyId, knownStudy.schemaNamespace);
+    }
   }
 
   /**
@@ -484,12 +492,6 @@ export default class Core {
         new Error(`Core._unenrollStudy - Unknown study ${studyAddonId}`));
     }
 
-    const knownStudy = knownStudies.find(s => s.addonId == studyAddonId);
-    if (!("schemaNamespace" in knownStudy)) {
-      return Promise.reject(
-        new Error(`Core._enrollStudy - No schema namespace specified in remote settings for ${studyAddonId}`));
-    }
-
     // Attempt to send an uninstall message, but move on if the
     // delivery fails: studies will not be able to send anything
     // without the Core Add-on anyway. Moreover, they might have been
@@ -497,18 +499,34 @@ export default class Core {
     try {
       await this._sendMessageToStudy(studyAddonId, "uninstall", {});
     } catch (e) {
-      console.error(`Core._unenroll - Unable to uninstall ${studyAddonId}`, e);
+      console.error(`Core._unenrollStudy - Unable to uninstall ${studyAddonId}`, e);
     }
 
     await this._storage.removeActivatedStudy(studyAddonId);
 
+    const endedStudies = knownStudies.filter(s => s.studyEnded);
+    if (endedStudies.map(s => s.addonId).includes(studyAddonId)) {
+      return Promise.reject(
+        new Error(`Core._unenrollStudy - Unenrolling study which has ended, not sending deletion pings for ${studyAddonId}`));
+    }
+
+    const knownStudy = knownStudies.find(s => s.addonId == studyAddonId);
+    if (!("schemaNamespace" in knownStudy)) {
+      return Promise.reject(
+        new Error(`Core._unenrollStudy - No schema namespace specified in remote settings for ${studyAddonId}`));
+    }
+
     unenrollmentMetrics.studyId.set(studyAddonId);
+    unenrollmentMetrics.schemaNamespace.set(knownStudy.schemaNamespace);
     rallyPings.studyUnenrollment.submit();
 
-    // Important: remove these lines once the migration
+    // Important: remove these block once the migration
     // to Glean.js is finally complete.
-    let rallyId = await this._storage.getRallyID();
-    await this._dataCollection.sendDeletionPing(rallyId, knownStudy.schemaNamespace);
+    if ("useLegacyTelemetry" in knownStudy && knownStudy.useLegacyTelemetry === true) {
+      console.warn("Sending study unenrollment ping using legacy telemetry");
+      let rallyId = await this._storage.getRallyID();
+      await this._dataCollection.sendDeletionPing(rallyId, knownStudy.schemaNamespace);
+    }
   }
 
   /**
@@ -748,6 +766,44 @@ export default class Core {
       s.studyJoined = joinedStudies.includes(s.addonId);
       return s;
     }).filter(study => (!study.studyPaused || study.studyJoined));
+
+    // Only show study if it is compatible with this version of the core add-on.
+    const coreVersion = browser.runtime.getManifest().version;
+
+    // Match the version number used by the core add-on, such as "1.3.7buildid20220107.052711".
+    // this uses capture groups to isolate the part before the build ID, the semantic version number "1.3.7".
+    const versionRegex = /^([0-9]+)\.([0-9]+)\.([0-9]+).*/;
+
+    try {
+      const [fullCore, majorCore, minorCore, patchCore] = coreVersion.match(versionRegex);
+
+      // Filter out any studies that are unsupported on this version of the core add-on.
+      availableStudies = availableStudies.filter(study => {
+        const [fullStudy, majorStudy, minorStudy, patchStudy] = study.minimumCoreVersion.match(versionRegex);
+        if (majorStudy > majorCore) {
+          console.error(`Study ${study.addonId} requires core version ${fullStudy}, not compatible with ${fullCore}`);
+          return false;
+        }
+        if (majorStudy === majorCore) {
+          if (minorStudy > minorCore) {
+            console.error(`Study ${study.addonId} requires core version ${fullStudy}, not compatible with ${fullCore}`);
+            return false;
+          }
+          if (minorStudy === minorCore) {
+            if (patchStudy > patchCore) {
+              console.error(`Study ${study.addonId} requires core version ${fullStudy}, not compatible with ${fullCore}`);
+              return false;
+            }
+          }
+        }
+        return study;
+      });
+    } catch (ex) {
+      console.error(ex);
+    }
+
+    // Sort studies using order property, if set.
+    availableStudies.sort((a, b) => a.order - b.order);
 
     const newState = {
       enrolled,

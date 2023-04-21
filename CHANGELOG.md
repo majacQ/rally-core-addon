@@ -1,6 +1,60 @@
 # Unreleased changes
 
-[Full changelog](https://github.com/mozilla-rally/core-addon/compare/v1.3.3...master)
+[Full changelog](https://github.com/mozilla-rally/core-addon/compare/v1.4.3...master)
+
+* [804](https://github.com/mozilla-rally/rally-core-addon/pull/804): Bug 1760255 - add rally ID to events pings
+* [808](https://github.com/mozilla-rally/rally-core-addon/pull/808): Use correct dynamic label for demographics survey
+
+# v1.4.3 (2022-02-03)
+
+[Full changelog](https://github.com/mozilla-rally/core-addon/compare/v1.4.2...v1.4.3)
+
+* [#788](https://github.com/mozilla-rally/rally-core-addon/pull/788): Ensure that data collection is always enabled in core add-on
+when user is enrolled
+
+# v1.4.2 (2022-01-26)
+
+[Full changelog](https://github.com/mozilla-rally/core-addon/compare/v1.4.1...v1.4.2)
+
+* [#782](https://github.com/mozilla-rally/rally-core-addon/pull/782): Optional legacy telemetry and send schema namespace in glean
+
+# v1.4.1 (2022-01-11)
+
+[Full changelog](https://github.com/mozilla-rally/core-addon/compare/v1.4.0...v1.4.1)
+
+* (hotfix) allow anything after core version number regex, catch and log any match errors
+
+# v1.4.0 (2022-01-10)
+[Full changelog](https://github.com/mozilla-rally/core-addon/compare/v1.3.8...v1.4.0)
+
+* [#771](https://github.com/mozilla-rally/rally-core-addon/pull/771): Switch to rally-studies-v2 remote-settings collection, and add `minimumCoreVersion` gate.
+* [#769](https://github.com/mozilla-rally/rally-core-addon/pull/769): Sort studies using order property, if present.
+
+# v1.3.8 (2022-01-10)
+
+* [#765](https://github.com/mozilla-rally/rally-core-addon/pull/765): Updates to CITP consent/IRB notices.
+
+# v1.3.7 (2022-01-05)
+
+[Full changelog](https://github.com/mozilla-rally/core-addon/compare/v1.3.6...v1.3.7)
+* [#761](https://github.com/mozilla-rally/rally-core-addon/pull/761): Add consent form for the CITP Search Study extension.
+* [#764](https://github.com/mozilla-rally/rally-core-addon/pull/764): Re-use consent form for news-disinfo study relaunch.
+
+# v1.3.6 (2021-12-08)
+
+[Full changelog](https://github.com/mozilla-rally/core-addon/compare/v1.3.5...v1.3.6)
+* [#752](https://github.com/mozilla-rally/rally-core-addon/pull/752): Stop prompting for onboarding when studies are side-loaded.
+* [#753](https://github.com/mozilla-rally/rally-core-addon/pull/753): Add consent form for themarkup Facebook Pixel Hunt extension
+
+# v1.3.5 (2021-10-15)
+
+[Full changelog](https://github.com/mozilla-rally/core-addon/compare/v1.3.4...v1.3.5)
+* [#730](https://github.com/mozilla-rally/rally-core-addon/pull/730): Add support for ending studies with `studyEnded` remote settings.
+
+# v1.3.4 (2021-07-20)
+
+[Full changelog](https://github.com/mozilla-rally/core-addon/compare/v1.3.3...v1.3.4)
+
 * [#682](https://github.com/mozilla-rally/rally-core-addon/pull/682): Add latest Stanford IRB changes.
 
 # v1.3.3 (2021-06-14)

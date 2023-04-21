@@ -6,11 +6,12 @@ import { strict as assert } from 'assert';
 // eslint-disable-next-line  node/no-extraneous-import
 import sinon from 'sinon';
 
-import Glean from "@mozilla/glean/webext";
+import { testResetGlean } from "@mozilla/glean/testing";
 
 import Core from '../../../core-addon/Core.js';
 import * as rallyMetrics from "../../../public/generated/rally.js";
 import * as enrollmentMetrics from "../../../public/generated/enrollment.js";
+import * as unenrollmentMetrics from "../../../public/generated/unenrollment.js";
 import * as rallyPings from "../../../public/generated/pings.js";
 
 
@@ -19,18 +20,30 @@ const OFFBOARD_URL = "https://production.rally.mozilla.org/offboard";
 
 // A fake study id to use in the tests when looking for a
 // "known" study.
-const FAKE_STUDY_ID = "test@ion-studies.com";
+const FAKE_STUDY_ID = "test@rally-studies.com";
+const FAKE_LEGACY_STUDY_ID = "test-legacy@rally-studies.com";
 const FAKE_STUDY_NAMESPACE = "fake-study-installed-namespace"
-const FAKE_STUDY_ID_NOT_INSTALLED = "test-not-installed@ion-studies.com";
+const FAKE_LEGACY_STUDY_NAMESPACE = "fake-legacy-study-installed-namespace"
+const FAKE_STUDY_ID_NOT_INSTALLED = "test-not-installed@rally-studies.com";
 const FAKE_STUDY_NOT_INSTALLED_NAMESPACE = "fake-study-not-installed-namespace"
 const FAKE_STUDY_LIST = [
   {
     "addonId": FAKE_STUDY_ID,
-    "schemaNamespace": FAKE_STUDY_NAMESPACE
+    "schemaNamespace": FAKE_STUDY_NAMESPACE,
+    "minimumCoreVersion": "0.0.1",
+    "useLegacyTelemetry": false
+  },
+  {
+    "addonId": FAKE_LEGACY_STUDY_ID,
+    "schemaNamespace": FAKE_LEGACY_STUDY_NAMESPACE,
+    "minimumCoreVersion": "0.0.1",
+    "useLegacyTelemetry": true
   },
   {
     "addonId": FAKE_STUDY_ID_NOT_INSTALLED,
-    "schemaNamespace": FAKE_STUDY_NOT_INSTALLED_NAMESPACE
+    "schemaNamespace": FAKE_STUDY_NOT_INSTALLED_NAMESPACE,
+    "minimumCoreVersion": "0.0.1",
+    "useLegacyTelemetry": true
   }
 ];
 const FAKE_UUID = "c0ffeec0-ffee-c0ff-eec0-ffeec0ffeec0";
@@ -41,7 +54,7 @@ describe('Core', function () {
   const testAppId = `core.test.${this.title}`;
 
   beforeEach(async function() {
-    await Glean.testResetGlean(testAppId);
+    await testResetGlean(testAppId);
 
     // Force the sinon-chrome stubbed API to resolve its promise
     // in tests. Without the next two lines, tests querying the
@@ -248,10 +261,11 @@ describe('Core', function () {
       await this.core._enrollStudy(FAKE_STUDY_ID);
 
       assert.equal(await enrollmentMetrics.studyId.testGetValue("study-enrollment"), FAKE_STUDY_ID);
+      assert.equal(await enrollmentMetrics.schemaNamespace.testGetValue("study-enrollment"), FAKE_STUDY_NAMESPACE);
 
       // We expect to store the fake ion ID.
       assert.ok(
-        this.core._dataCollection.sendEnrollmentPing.withArgs(FAKE_UUID, FAKE_STUDY_NAMESPACE).calledOnce
+        this.core._dataCollection.sendEnrollmentPing.withArgs(FAKE_UUID, FAKE_STUDY_NAMESPACE).notCalled
       );
       enrollmentPingMock.verify();
     });
@@ -338,7 +352,7 @@ describe('Core', function () {
 
       // We to submit a ping with the expected type.
       assert.ok(
-        this.core._dataCollection.sendDeletionPing.withArgs(FAKE_UUID, FAKE_STUDY_NAMESPACE).calledOnce
+        this.core._dataCollection.sendDeletionPing.withArgs(FAKE_UUID, FAKE_STUDY_NAMESPACE).notCalled
       );
 
       // Make sure that we're generating an uninstall message for
@@ -442,7 +456,7 @@ describe('Core', function () {
           {type: "telemetry-ping", data: {}},
           {id: FAKE_STUDY_ID}
         ),
-        { message: "Core._handleExternalMessage - test@ion-studies.com not joined"}
+        { message: `Core._handleExternalMessage - ${FAKE_STUDY_ID} not joined`}
       );
     });
   });
@@ -483,8 +497,9 @@ describe('Core', function () {
   describe('_fetchAvailableStudies()', function () {
     it('returns a list of addons', async function () {
       let studies = await this.core._fetchAvailableStudies();
-      assert.equal(studies.length, 2);
+      assert.equal(studies.length, 3);
       assert.ok(studies.filter(a => (a.addonId === FAKE_STUDY_ID)));
+      assert.ok(studies.filter(a => (a.addonId === FAKE_LEGACY_STUDY_ID)));
       assert.ok(studies.filter(a => (a.addonId === FAKE_STUDY_ID_NOT_INSTALLED)));
     });
 
@@ -504,7 +519,7 @@ describe('Core', function () {
       // Kick off an update task.
       let studies =
         await this.core._updateInstalledStudies(FAKE_STUDY_LIST);
-      assert.equal(studies.length, 2);
+      assert.equal(studies.length, 3);
       // Check that the FAKE_STUDY_ID is marked as installed (as per
       // our fake data, see the beginning of this file).
       assert.equal(studies
@@ -534,7 +549,7 @@ describe('Core', function () {
     it('rejects on target study ids', async function () {
       assert.rejects(
         this.core._sendMessageToStudy(FAKE_STUDY_ID, "unknown-type-test", {}),
-        { message: "Core._sendMessageToStudy - unexpected message \"unknown-type-test\" to study \"test@ion-studies.com\""}
+        { message: `Core._sendMessageToStudy - unexpected message "unknown-type-test" to study "${FAKE_STUDY_ID}"`}
       );
     });
 
@@ -607,7 +622,7 @@ describe('Core', function () {
     it('pauses studies properly', async function () {
       // Make sure the functions yield during tests!
       browser.storage.local.get
-        .callsArgWith(1, {activatedStudies: [FAKE_STUDY_ID]})
+        .callsArgWith(1, {activatedStudies: [FAKE_STUDY_ID, FAKE_LEGACY_STUDY_ID]})
         .resolves();
       chrome.runtime.sendMessage.yields();
 
@@ -623,7 +638,38 @@ describe('Core', function () {
           {},
           // This is the callback hidden away by webextension-polyfill.
           sinon.match.any
-        ).calledOnce
+        ).calledOnce,
+        chrome.runtime.sendMessage.withArgs(
+          FAKE_LEGACY_STUDY_ID,
+          sinon.match({type: "pause", data: {}}),
+          // We're not providing any option.
+          {},
+          // This is the callback hidden away by webextension-polyfill.
+          sinon.match.any
+        ).notCalled
+      );
+
+      const fakeLegacyStudy = FAKE_STUDY_LIST[1];
+      fakeLegacyStudy.studyPaused = true;
+      await this.core._sendRunState(FAKE_STUDY_LIST, [FAKE_LEGACY_STUDY_ID]);
+
+      assert.ok(
+        chrome.runtime.sendMessage.withArgs(
+          FAKE_LEGACY_STUDY_ID,
+          sinon.match({type: "pause", data: {}}),
+          // We're not providing any option.
+          {},
+          // This is the callback hidden away by webextension-polyfill.
+          sinon.match.any
+        ).calledOnce,
+        chrome.runtime.sendMessage.withArgs(
+          FAKE_STUDY_ID,
+          sinon.match({type: "pause", data: {}}),
+          // We're not providing any option.
+          {},
+          // This is the callback hidden away by webextension-polyfill.
+          sinon.match.any
+        ).notCalled
       );
     });
 
@@ -634,9 +680,9 @@ describe('Core', function () {
         .resolves();
       chrome.runtime.sendMessage.yields();
 
-      const fakeStudy = FAKE_STUDY_LIST[0];
-      fakeStudy.studyPaused = true;
-      await this.core._sendRunState(FAKE_STUDY_LIST, [FAKE_STUDY_ID]);
+      const fakeLegacyStudy = FAKE_STUDY_LIST[1];
+      fakeLegacyStudy.studyPaused = true;
+      await this.core._sendRunState(FAKE_STUDY_LIST, [FAKE_LEGACY_STUDY_ID]);
 
       sinon.spy(this.core._dataCollection, "sendPing");
 
@@ -668,7 +714,7 @@ describe('Core', function () {
           {type: "telemetry-ping", data: SENT_PING},
           {id: FAKE_STUDY_ID}
         ),
-        { message: "Core._handleExternalMessage - test@ion-studies.com is paused and may not send data"}
+        { message: `Core._handleExternalMessage - ${FAKE_STUDY_ID} is paused and may not send data`}
       );
 
       assert.ok(
@@ -682,6 +728,68 @@ describe('Core', function () {
               sinon.match(SENT_PING.key)
             ).notCalled
       );
+    });
+
+    it('send unenrollment pings when study is uninstalled', async function () {
+      // Make sure the functions yield during tests!
+      browser.storage.local.get
+        .callsArgWith(1, {activatedStudies: [FAKE_STUDY_ID]})
+        .resolves();
+      chrome.runtime.sendMessage.yields();
+
+      const fakeStudy = FAKE_STUDY_LIST[0];
+      fakeStudy.studyEnded = false;
+      await this.core._sendRunState(FAKE_STUDY_LIST, [FAKE_STUDY_ID]);
+
+      const unenrollmentPingMock = sinon.mock(rallyPings.studyUnenrollment);
+      unenrollmentPingMock.expects("submit").once();
+
+      // Mock the storage to provide a fake rally id.
+      const FAKE_UUID = "c0ffeec0-ffee-c0ff-eec0-ffeec0ffeec0";
+      browser.storage.local.get
+        .callsArgWith(1, {rallyId: FAKE_UUID})
+        .resolves();
+      chrome.storage.local.get.yields(FAKE_UUID);
+
+      // Attempt to unenroll from the study.
+      await this.core._unenrollStudy(FAKE_STUDY_ID);
+
+      assert.equal(await unenrollmentMetrics.studyId.testGetValue("study-unenrollment"), FAKE_STUDY_ID);
+      assert.equal(await unenrollmentMetrics.schemaNamespace.testGetValue("study-unenrollment"), FAKE_STUDY_NAMESPACE);
+
+      unenrollmentPingMock.verify();
+    });
+
+    it('handles studyEnded properly', async function () {
+      // Make sure the functions yield during tests!
+      browser.storage.local.get
+        .callsArgWith(1, {activatedStudies: [FAKE_STUDY_ID]})
+        .resolves();
+      chrome.runtime.sendMessage.yields();
+
+      const fakeStudy = FAKE_STUDY_LIST[0];
+      fakeStudy.studyEnded = true;
+      await this.core._sendRunState(FAKE_STUDY_LIST, [FAKE_STUDY_ID]);
+
+      const unenrollmentPingMock = sinon.mock(rallyPings.studyUnenrollment);
+      unenrollmentPingMock.expects("submit").never();
+
+      // Mock the storage to provide a fake rally id.
+      const FAKE_UUID = "c0ffeec0-ffee-c0ff-eec0-ffeec0ffeec0";
+      browser.storage.local.get
+        .callsArgWith(1, {rallyId: FAKE_UUID})
+        .resolves();
+      chrome.storage.local.get.yields(FAKE_UUID);
+
+      // Attempt to unenroll from the study.
+      assert.rejects(
+        this.core._unenrollStudy(FAKE_STUDY_ID),
+        { message: `Core._unenrollStudy - Unenrolling study which has ended, not sending deletion pings for ${FAKE_STUDY_ID}`}
+      );
+
+      // No unenrollment pings are sent.
+      assert.equal(await unenrollmentMetrics.studyId.testGetValue("study-unenrollment"), undefined);
+      unenrollmentPingMock.verify();
     });
   });
 
